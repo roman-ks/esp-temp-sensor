@@ -3,6 +3,10 @@
 #include <MQTT.h>
 #include "wifi_creds.h"
 #include <Wire.h>
+#include "esp_sleep.h"
+
+#define uS_TO_S_FACTOR  1000000ULL  // Conversion factor for micro seconds to seconds
+#define TIME_TO_SLEEP_S 5*60         // Time ESP32 will go to sleep (in seconds)
 
 const char *ssid = SSID;          // Change this to your WiFi SSID
 const char *password = PASSWORD;  // Change this to your WiFi password
@@ -14,17 +18,20 @@ MQTTClient client;
 
 unsigned long lastMillis = 0;
 
+float measureTemp();
+float measureHumidity();
+
 
 void connect() {
   ESP_LOGI("APP","checking wifi...");
   while (WiFi.status() != WL_CONNECTED) {
-    ESP_LOGI("APP",".");
+    ESP_LOGI("APP","Connecting to wifi...");
     delay(1000);
   }
 
   ESP_LOGI("APP","\nconnecting...");
   while (!client.connect("arduino", "public", "public")) {
-    ESP_LOGI("APP",".");
+    ESP_LOGI("APP","Connecting to mqtt broker...");
     delay(1000);
   }
 
@@ -41,8 +48,7 @@ void setup() {
   ESP_LOGI("APP", "SSID: %s", ssid);
 
   WiFi.begin(ssid, password);
-  client.begin("192.168.50.150", net);
-  client.onMessage(messageReceived);
+  client.begin(MQTT_SERVER, net);
 
   ESP_LOGI("APP","");
   ESP_LOGI("APP","WiFi connected");
@@ -57,6 +63,21 @@ void setup() {
   Wire.endTransmission();
   delay(20);  // Small delay after reset
 
+  client.loop();
+
+  float temp = measureTemp();
+  client.publish("/home/esp32_0/temperature", String(temp).c_str());
+  float humidity = measureHumidity();
+  client.publish("/home/esp32_0/humidity", String(humidity).c_str());
+
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP_S * uS_TO_S_FACTOR);
+  ESP_LOGI("APP","Going to sleep now");
+  delay(1000);
+  WiFi.disconnect();
+  Wire.end();
+  Serial.flush(); 
+  delay(1000);
+  esp_deep_sleep_start();
 }
 
 const int reqBytes = 3;
@@ -98,20 +119,4 @@ float measureHumidity(){
 }
 
 void loop() {
-  client.loop();
-  delay(10);  // <- fixes some issues with WiFi stability
-
-  if (!client.connected()) {
-    connect();
-  }
-
-  // publish a message roughly every second.
-  if (millis() - lastMillis > 10000) {
-    lastMillis = millis();
-
-    float temp = measureTemp();
-    client.publish("/home/esp32_0/temperature", String(temp).c_str());
-    float humidity = measureHumidity();
-    client.publish("/home/esp32_0/humidity", String(humidity).c_str());
-  }
 }
