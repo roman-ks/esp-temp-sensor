@@ -16,21 +16,41 @@ const int SHT20_ADDR = 0x40;
 WiFiClient net;
 MQTTClient client;
 
-unsigned long lastMillis = 0;
-
 float measureTemp();
 float measureHumidity();
 
+void deepSleep() {
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP_S * uS_TO_S_FACTOR);
+  ESP_LOGI("APP","Going to sleep now");
+  delay(1000);
+  client.disconnect();
+  WiFi.disconnect();
+  Wire.end();
+  Serial.flush(); 
+  delay(100);
+  esp_deep_sleep_start();
+}
 
 void connect() {
   ESP_LOGI("APP","checking wifi...");
-  while (WiFi.status() != WL_CONNECTED) {
+  unsigned long start = millis();
+  while ((WiFi.status() != WL_CONNECTED)) {
+    if((millis() - start > 10000)){
+      ESP_LOGI("APP","Failed to connect to WiFi");
+      deepSleep();
+    }
     ESP_LOGI("APP","Connecting to wifi...");
     delay(1000);
   }
 
-  ESP_LOGI("APP","\nconnecting...");
+
+  ESP_LOGI("APP","connecting...");
+  start = millis();
   while (!client.connect("arduino", "public", "public")) {
+    if((millis() - start > 10000)){
+      ESP_LOGI("APP","Failed to connect to MQTT broker");
+      deepSleep();
+    }
     ESP_LOGI("APP","Connecting to mqtt broker...");
     delay(1000);
   }
@@ -70,14 +90,7 @@ void setup() {
   float humidity = measureHumidity();
   client.publish("/home/esp32_0/humidity", String(humidity).c_str());
 
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP_S * uS_TO_S_FACTOR);
-  ESP_LOGI("APP","Going to sleep now");
-  delay(1000);
-  WiFi.disconnect();
-  Wire.end();
-  Serial.flush(); 
-  delay(1000);
-  esp_deep_sleep_start();
+  deepSleep();
 }
 
 const int reqBytes = 3;
